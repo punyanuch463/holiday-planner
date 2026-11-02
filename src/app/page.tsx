@@ -14,7 +14,7 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
-import type { Trip, Holiday } from "@/types/trip";
+import type { Trip, Holiday, Shift, ShiftType } from "@/types/trip";
 
 import {
   CalendarDays,
@@ -51,6 +51,94 @@ const holidayColors = [
   "#F4C995",
 ];
 
+const shiftOptions: {
+  type: ShiftType;
+  label: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  endNextDay: boolean;
+  color: string;
+}[] = [
+    {
+      type: "morning",
+      label: "🌈 เวรเช้า",
+      name: "🌈 เวรเช้า",
+      startTime: "07:00",
+      endTime: "16:00",
+      endNextDay: false,
+      color: "#91B7A0",
+    },
+    {
+      type: "afternoon",
+      label: "☀️ เวรบ่าย",
+      name: "☀️ เวรบ่าย",
+      startTime: "15:00",
+      endTime: "00:00",
+      endNextDay: true,
+      color: "#F4C995",
+    },
+    {
+      type: "night",
+      label: "🌝 เวรดึก",
+      name: "🌝 เวรดึก",
+      startTime: "23:00",
+      endTime: "08:00",
+      endNextDay: true,
+      color: "#A9C5E8",
+    },
+    {
+      type: "rh",
+      label: "✨ RH",
+      name: "✨ RH",
+      startTime: "08:00",
+      endTime: "12:00",
+      endNextDay: false,
+      color: "#D9C6EF",
+    },
+    {
+      type: "substitute",
+      label: "🤍 เวรแทน*",
+      name: "🤍 เวรแทน*",
+      startTime: "07:00",
+      endTime: "16:00",
+      endNextDay: false,
+      color: "#F5A5B8",
+    },
+    {
+      type: "yp",
+      label: "✅ YP (อบรม)",
+      name: "✅ YP (อบรม)",
+      startTime: "08:00",
+      endTime: "12:00",
+      endNextDay: false,
+      color: "#B5C7A8",
+    },
+  ];
+
+const substituteOptions = [
+  {
+    value: "morning",
+    label: "เวรเช้า",
+    startTime: "07:00",
+    endTime: "16:00",
+  },
+  {
+    value: "afternoon",
+    label: "เวรบ่าย",
+    startTime: "15:00",
+    endTime: "00:00",
+  },
+  {
+    value: "night",
+    label: "เวรดึก",
+    startTime: "23:00",
+    endTime: "08:00",
+  },
+] as const;
+
+type SubstituteShift = "morning" | "afternoon" | "night";
+
 function getLocalDate() {
   const today = new Date();
 
@@ -72,19 +160,54 @@ function formatThaiDate(date: string) {
   });
 }
 
+function getShiftConfig(type: ShiftType) {
+  return shiftOptions.find((item) => item.type === type) ?? shiftOptions[0];
+}
+
+function getMinutes(time: string) {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function getShiftDuration(
+  startTime: string,
+  endTime: string,
+  endNextDay: boolean
+) {
+  const start = getMinutes(startTime);
+  const end = getMinutes(endTime);
+
+  return endNextDay ? end + 1440 - start : end - start;
+}
+
+function getSubstituteLabel(note = "") {
+  const match = note.match(/แทนเวร: (เช้า|บ่าย|ดึก)/);
+  return match?.[1] ?? "เช้า";
+}
+
 export default function Home() {
   const router = useRouter();
 
+  // ----------------------------------------
   // ข้อมูลหลัก
+  // ----------------------------------------
+
   const [trips, setTrips] = useState<Trip[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ----------------------------------------
   // Modal รายละเอียดวันที่
+  // ----------------------------------------
+
   const [selectedDate, setSelectedDate] = useState("");
   const [showDayModal, setShowDayModal] = useState(false);
 
-  // Modal เพิ่ม / แก้ไขวันหยุด
+  // ----------------------------------------
+  // Holiday form
+  // ----------------------------------------
+
   const [showHolidayForm, setShowHolidayForm] = useState(false);
   const [holidayId, setHolidayId] = useState<string | null>(null);
   const [holidayName, setHolidayName] = useState("");
@@ -92,13 +215,36 @@ export default function Home() {
   const [savingHoliday, setSavingHoliday] = useState(false);
   const [holidayError, setHolidayError] = useState("");
 
-  // Modal ยืนยันการลบ ใช้ร่วมกันทั้ง Holiday และ Trip
+  // ----------------------------------------
+  // Shift form
+  // ----------------------------------------
+
+  const [showShiftForm, setShowShiftForm] = useState(false);
+  const [shiftId, setShiftId] = useState<string | null>(null);
+  const [shiftDate, setShiftDate] = useState("");
+  const [shiftType, setShiftType] = useState<ShiftType>("morning");
+  const [shiftName, setShiftName] = useState("🌈 เวรเช้า");
+  const [shiftStartTime, setShiftStartTime] = useState("07:00");
+  const [shiftEndTime, setShiftEndTime] = useState("16:00");
+  const [shiftEndNextDay, setShiftEndNextDay] = useState(false);
+  const [shiftNote, setShiftNote] = useState("");
+  const [coveredShift, setCoveredShift] =
+    useState<SubstituteShift>("morning");
+  const [shiftColor, setShiftColor] = useState("#91B7A0");
+  const [savingShift, setSavingShift] = useState(false);
+  const [shiftError, setShiftError] = useState("");
+  const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
+  const [showTripDetailModal, setShowTripDetailModal] = useState(false);
+  // ----------------------------------------
+  // Delete modal
+  // ----------------------------------------
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<{
     id: string;
     name: string;
-    type: "holiday" | "trip";
+    type: "holiday" | "trip" | "shift";
   } | null>(null);
 
   const [deleting, setDeleting] = useState(false);
@@ -111,6 +257,7 @@ export default function Home() {
   useEffect(() => {
     let unsubscribeTrips: (() => void) | undefined;
     let unsubscribeHolidays: (() => void) | undefined;
+    let unsubscribeShifts: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
@@ -124,6 +271,7 @@ export default function Home() {
 
       unsubscribeTrips?.();
       unsubscribeHolidays?.();
+      unsubscribeShifts?.();
 
       unsubscribeTrips = onSnapshot(
         collection(db, "trips"),
@@ -156,17 +304,33 @@ export default function Home() {
           console.error("Load holidays error:", error);
         }
       );
+
+      unsubscribeShifts = onSnapshot(
+        collection(db, "shifts"),
+        (snapshot) => {
+          const data = snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as Shift[];
+
+          setShifts(data);
+        },
+        (error) => {
+          console.error("Load shifts error:", error);
+        }
+      );
     });
 
     return () => {
       unsubscribeAuth();
       unsubscribeTrips?.();
       unsubscribeHolidays?.();
+      unsubscribeShifts?.();
     };
   }, []);
 
   // ----------------------------------------
-  // เลือกวันที่จากปฏิทิน
+  // ข้อมูลของวันที่เลือก
   // ----------------------------------------
 
   const handleSelectDate = (date: string) => {
@@ -176,6 +340,10 @@ export default function Home() {
 
   const selectedDayHolidays = holidays.filter(
     (holiday) => holiday.date === selectedDate
+  );
+
+  const selectedDayShifts = shifts.filter(
+    (shift) => shift.date === selectedDate
   );
 
   const selectedDayTrips = trips.filter(
@@ -189,23 +357,29 @@ export default function Home() {
   );
 
   // ----------------------------------------
-  // เพิ่มวันหยุด
+  // Holiday form
   // ----------------------------------------
 
-  const openAddHoliday = (date = getLocalDate()) => {
-    setSelectedDate(date);
+  const resetHolidayForm = () => {
     setHolidayId(null);
     setHolidayName("");
     setHolidayColor("#F5A5B8");
     setHolidayError("");
+  };
 
+  const closeHolidayForm = () => {
+    if (savingHoliday) return;
+
+    setShowHolidayForm(false);
+    resetHolidayForm();
+  };
+
+  const openAddHoliday = (date = getLocalDate()) => {
+    setSelectedDate(date);
+    resetHolidayForm();
     setShowDayModal(false);
     setShowHolidayForm(true);
   };
-
-  // ----------------------------------------
-  // แก้ไขวันหยุด
-  // ----------------------------------------
 
   const openEditHoliday = (holiday: Holiday) => {
     setHolidayId(holiday.id);
@@ -213,17 +387,12 @@ export default function Home() {
     setHolidayName(holiday.name);
     setHolidayColor(holiday.color || "#F5A5B8");
     setHolidayError("");
-
     setShowDayModal(false);
     setShowHolidayForm(true);
   };
 
-  // ----------------------------------------
-  // บันทึกวันหยุด
-  // ----------------------------------------
-
   const handleSaveHoliday = async () => {
-    if (!holidayName.trim() || !selectedDate) return;
+    if (!holidayName.trim() || !selectedDate || savingHoliday) return;
 
     setSavingHoliday(true);
     setHolidayError("");
@@ -237,10 +406,7 @@ export default function Home() {
       };
 
       if (holidayId) {
-        await updateDoc(
-          doc(db, "holidays", holidayId),
-          holidayData
-        );
+        await updateDoc(doc(db, "holidays", holidayId), holidayData);
       } else {
         await addDoc(collection(db, "holidays"), {
           ...holidayData,
@@ -249,10 +415,7 @@ export default function Home() {
       }
 
       setShowHolidayForm(false);
-      setHolidayId(null);
-      setHolidayName("");
-      setHolidayColor("#F5A5B8");
-      setHolidayError("");
+      resetHolidayForm();
     } catch (error) {
       console.error("Save holiday error:", error);
       setHolidayError("ไม่สามารถบันทึกวันหยุดได้ กรุณาลองใหม่");
@@ -262,28 +425,205 @@ export default function Home() {
   };
 
   // ----------------------------------------
-  // เปิด Modal ยืนยันการลบ
-  // ใช้ได้ทั้ง Holiday และ Trip
+  // Shift form
+  // ----------------------------------------
+
+  const resetShiftForm = () => {
+    setShiftId(null);
+    setShiftDate("");
+    setShiftType("morning");
+    setShiftName("🌈 เวรเช้า");
+    setShiftStartTime("07:00");
+    setShiftEndTime("16:00");
+    setShiftEndNextDay(false);
+    setShiftNote("");
+    setCoveredShift("morning");
+    setShiftColor("#91B7A0");
+    setShiftError("");
+  };
+
+  const closeShiftForm = () => {
+    if (savingShift) return;
+
+    setShowShiftForm(false);
+    resetShiftForm();
+  };
+
+  const openAddShift = (date = selectedDate || getLocalDate()) => {
+    resetShiftForm();
+    setShiftDate(date);
+    setShowDayModal(false);
+    setShowShiftForm(true);
+  };
+
+  const handleShiftTypeChange = (type: ShiftType) => {
+    const config = getShiftConfig(type);
+
+    setShiftType(type);
+    setShiftName(config.name);
+    setShiftStartTime(config.startTime);
+    setShiftEndTime(config.endTime);
+    setShiftEndNextDay(config.endNextDay);
+    setShiftColor(config.color);
+    setShiftError("");
+
+    if (type === "substitute") {
+      setCoveredShift("morning");
+    }
+  };
+
+  const handleCoveredShiftChange = (value: SubstituteShift) => {
+    setCoveredShift(value);
+
+    const config = substituteOptions.find(
+      (item) => item.value === value
+    );
+
+    if (config) {
+      setShiftStartTime(config.startTime);
+      setShiftEndTime(config.endTime);
+      setShiftEndNextDay(value !== "morning");
+    }
+  };
+
+  const openEditShift = (shift: Shift) => {
+    setShiftId(shift.id);
+    setShiftDate(shift.date);
+    setShiftType(shift.type);
+    setShiftName(shift.name);
+    setShiftStartTime(shift.startTime);
+    setShiftEndTime(shift.endTime);
+    setShiftEndNextDay(shift.endNextDay);
+    setShiftColor(shift.color || getShiftConfig(shift.type).color);
+
+    if (shift.type === "substitute") {
+      const label = getSubstituteLabel(shift.note);
+      const selected =
+        label === "บ่าย"
+          ? "afternoon"
+          : label === "ดึก"
+            ? "night"
+            : "morning";
+
+      setCoveredShift(selected);
+      setShiftNote(
+        (shift.note || "").replace(/^แทนเวร: (เช้า|บ่าย|ดึก)\s*\|?\s*/, "")
+      );
+    } else {
+      setCoveredShift("morning");
+      setShiftNote(shift.note || "");
+    }
+
+    setShiftError("");
+    setShowDayModal(false);
+    setShowShiftForm(true);
+  };
+
+  const handleSaveShift = async (addAnother = false) => {
+    if (!shiftDate) {
+      setShiftError("กรุณาเลือกวันที่");
+      return;
+    }
+
+    if (!shiftName.trim()) {
+      setShiftError("กรุณาระบุชื่อเวร");
+      return;
+    }
+
+    if (!shiftStartTime || !shiftEndTime) {
+      setShiftError("กรุณากำหนดเวลาเริ่มต้นและสิ้นสุด");
+      return;
+    }
+
+    const duration = getShiftDuration(
+      shiftStartTime,
+      shiftEndTime,
+      shiftEndNextDay
+    );
+
+    if (duration <= 0) {
+      setShiftError("เวลาเลิกงานต้องอยู่หลังเวลาเริ่มงาน");
+      return;
+    }
+
+    if (shiftType === "rh" && duration !== 240) {
+      setShiftError("เวร RH ต้องมีระยะเวลา 4 ชั่วโมงพอดี");
+      return;
+    }
+
+    if (savingShift) return;
+
+    setSavingShift(true);
+    setShiftError("");
+
+    try {
+      let finalNote = shiftNote.trim();
+
+      if (shiftType === "substitute") {
+        const coveredLabel =
+          substituteOptions.find(
+            (item) => item.value === coveredShift
+          )?.label ?? "เวรเช้า";
+
+        const shortLabel = coveredLabel.replace("เวร", "");
+
+        finalNote = `แทนเวร: ${shortLabel}${finalNote ? ` | ${finalNote}` : ""
+          }`;
+      }
+
+      const shiftData = {
+        date: shiftDate,
+        type: shiftType,
+        name: shiftName.trim(),
+        startTime: shiftStartTime,
+        endTime: shiftEndTime,
+        endNextDay: shiftEndNextDay,
+        note: finalNote,
+        color: shiftColor,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (shiftId) {
+        await updateDoc(doc(db, "shifts", shiftId), shiftData);
+      } else {
+        await addDoc(collection(db, "shifts"), {
+          ...shiftData,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      const savedDate = shiftDate;
+
+      if (addAnother) {
+        // ล้างข้อมูลเวรเดิม แต่คงวันที่ไว้
+        resetShiftForm();
+        setShiftDate(savedDate);
+        setShowShiftForm(true);
+      } else {
+        setShowShiftForm(false);
+        resetShiftForm();
+      }
+    } catch (error) {
+      console.error("Save shift error:", error);
+      setShiftError("ไม่สามารถบันทึกเวรได้ กรุณาลองใหม่");
+    } finally {
+      setSavingShift(false);
+    }
+  };
+
+  // ----------------------------------------
+  // Delete modal
   // ----------------------------------------
 
   const openDeleteModal = (
     id: string,
     name: string,
-    type: "holiday" | "trip"
+    type: "holiday" | "trip" | "shift"
   ) => {
-    setDeleteTarget({
-      id,
-      name,
-      type,
-    });
-
+    setDeleteTarget({ id, name, type });
     setDeleteError("");
     setShowDeleteModal(true);
   };
-
-  // ----------------------------------------
-  // ยืนยันการลบ
-  // ----------------------------------------
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget || deleting) return;
@@ -293,11 +633,13 @@ export default function Home() {
 
     try {
       const collectionName =
-        deleteTarget.type === "holiday" ? "holidays" : "trips";
+        deleteTarget.type === "holiday"
+          ? "holidays"
+          : deleteTarget.type === "shift"
+            ? "shifts"
+            : "trips";
 
-      await deleteDoc(
-        doc(db, collectionName, deleteTarget.id)
-      );
+      await deleteDoc(doc(db, collectionName, deleteTarget.id));
 
       setShowDeleteModal(false);
       setDeleteTarget(null);
@@ -310,10 +652,6 @@ export default function Home() {
     }
   };
 
-  // ----------------------------------------
-  // ปิด Modal ลบ
-  // ----------------------------------------
-
   const closeDeleteModal = () => {
     if (deleting) return;
 
@@ -323,7 +661,7 @@ export default function Home() {
   };
 
   // ----------------------------------------
-  // เพิ่ม Trip
+  // Trip
   // ----------------------------------------
 
   const openAddTrip = (date = "") => {
@@ -336,13 +674,22 @@ export default function Home() {
     );
   };
 
-  // ----------------------------------------
-  // เปิดรายละเอียด Trip
-  // ----------------------------------------
-
   const openTripDetail = (tripId: string) => {
-    router.push(`/trips/${tripId}`);
+    const trip = trips.find((item) => item.id === tripId);
+
+    if (!trip) return;
+
+    setSelectedTrip(trip);
+    setShowDayModal(false);
+    setShowTripDetailModal(true);
   };
+  const closeTripDetail = () => {
+    setShowTripDetailModal(false);
+    setSelectedTrip(null);
+  };
+  // ----------------------------------------
+  // Render
+  // ----------------------------------------
 
   return (
     <main className="min-h-screen bg-[#fff7f2] px-3 py-5 text-[#604b3e] sm:px-5 sm:py-8 md:px-8">
@@ -353,7 +700,6 @@ export default function Home() {
           <div>
             <div className="flex items-center gap-2">
               <Plane className="text-[#d69a82]" size={28} />
-
               <h1 className="text-2xl font-bold md:text-3xl">
                 Holiday Planner
               </h1>
@@ -376,6 +722,15 @@ export default function Home() {
 
             <button
               type="button"
+              onClick={() => openAddShift()}
+              className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#91B7A0] px-3 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:px-5"
+            >
+              <Clock size={18} />
+              เพิ่มเวร
+            </button>
+
+            <button
+              type="button"
               onClick={() => openAddTrip()}
               className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#a99acb] px-3 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#9584bb] sm:px-5"
             >
@@ -386,20 +741,30 @@ export default function Home() {
         </header>
 
         {/* Summary */}
-        <div className="mb-7 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
-
+        <div className="mb-7 grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
           <div className="rounded-2xl border border-white bg-white/80 p-5 shadow-sm">
             <div className="mb-3 flex items-center gap-2 text-sm text-[#a18b7c]">
               <CalendarDays size={18} />
               วันหยุดทั้งหมด
             </div>
-
             <p className="text-3xl font-bold text-[#d69a82]">
               {holidays.length}
             </p>
-
             <p className="mt-1 text-xs text-[#b9a394]">
               วันที่วางแผนหยุด
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white bg-white/80 p-5 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm text-[#a18b7c]">
+              <Clock size={18} />
+              เวรทั้งหมด
+            </div>
+            <p className="text-3xl font-bold text-[#91b7a0]">
+              {shifts.length}
+            </p>
+            <p className="mt-1 text-xs text-[#b9a394]">
+              รายการเวรที่บันทึกไว้
             </p>
           </div>
 
@@ -408,11 +773,9 @@ export default function Home() {
               <Plane size={18} />
               ทริปทั้งหมด
             </div>
-
             <p className="text-3xl font-bold text-[#a99acb]">
               {trips.length}
             </p>
-
             <p className="mt-1 text-xs text-[#b9a394]">
               ทริปที่วางแผนไว้
             </p>
@@ -423,15 +786,12 @@ export default function Home() {
               <Heart size={18} />
               สถานที่เที่ยว
             </div>
-
             <p className="text-3xl font-bold text-[#91b7a0]">
               {trips.reduce(
-                (total, trip) =>
-                  total + (trip.places?.length ?? 0),
+                (total, trip) => total + (trip.places?.length ?? 0),
                 0
               )}
             </p>
-
             <p className="mt-1 text-xs text-[#b9a394]">
               สถานที่ในแผนเที่ยว
             </p>
@@ -442,6 +802,7 @@ export default function Home() {
         <MonthlyCalendar
           trips={trips}
           holidays={holidays}
+          shifts={shifts}
           onSelectDate={handleSelectDate}
         />
 
@@ -467,19 +828,13 @@ export default function Home() {
             </p>
           ) : upcomingTrips.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-[#e8d9ce] bg-white/60 p-8 text-center">
-              <Plane
-                className="mx-auto mb-3 text-[#c5b2d9]"
-                size={32}
-              />
-
+              <Plane className="mx-auto mb-3 text-[#c5b2d9]" size={32} />
               <p className="font-medium">
                 ยังไม่มีทริปที่วางแผนไว้
               </p>
-
               <p className="mt-1 text-sm text-[#a18b7c]">
                 เริ่มสร้างทริปแรกของคุณได้เลย
               </p>
-
               <button
                 type="button"
                 onClick={() => openAddTrip()}
@@ -505,7 +860,6 @@ export default function Home() {
                       <h3 className="break-words font-semibold">
                         {trip.title}
                       </h3>
-
                       <p className="mt-2 text-xs text-[#a18b7c]">
                         📅 {trip.startDate} — {trip.endDate}
                       </p>
@@ -515,15 +869,10 @@ export default function Home() {
                       <span className="rounded-full bg-[#f8e5dc] p-2 text-[#d69a82]">
                         <Plane size={18} />
                       </span>
-
                       <button
                         type="button"
                         onClick={() =>
-                          openDeleteModal(
-                            trip.id,
-                            trip.title,
-                            "trip"
-                          )
+                          openDeleteModal(trip.id, trip.title, "trip")
                         }
                         className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50 text-red-400 transition hover:bg-red-100"
                         aria-label={`ลบทริป ${trip.title}`}
@@ -588,7 +937,6 @@ export default function Home() {
                   <p className="text-sm text-[#a18b7c]">
                     รายละเอียดวันที่เลือก
                   </p>
-
                   <h2
                     id="day-modal-title"
                     className="mt-1 text-lg font-bold sm:text-xl"
@@ -606,6 +954,80 @@ export default function Home() {
                   <X size={20} />
                 </button>
               </div>
+
+              {/* Shift list */}
+              <section className="mb-6">
+                <h3 className="mb-3 flex items-center gap-2 font-semibold text-[#6f9b7e]">
+                  <Clock size={18} />
+                  ตารางเวร ({selectedDayShifts.length})
+                </h3>
+
+                {selectedDayShifts.length === 0 ? (
+                  <p className="rounded-xl bg-[#fffcfa] p-4 text-center text-sm text-[#b9a394]">
+                    ยังไม่มีเวรในวันนี้
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedDayShifts.map((shift) => (
+                      <div
+                        key={shift.id}
+                        className="rounded-xl p-3"
+                        style={{
+                          backgroundColor: `${shift.color || "#91B7A0"}25`,
+                        }}
+                      >
+                        <div className="flex items-start gap-2">
+                          <span
+                            className="mt-1 h-3 w-3 shrink-0 rounded-full"
+                            style={{
+                              backgroundColor: shift.color || "#91B7A0",
+                            }}
+                          />
+
+                          <div className="min-w-0 flex-1">
+                            <p className="break-words text-sm font-semibold">
+                              {shift.name}
+                            </p>
+                            <p className="mt-1 text-xs text-[#8e7b6d]">
+                              {shift.startTime} – {shift.endTime}
+                              {shift.endNextDay ? " (+1 วัน)" : ""}
+                            </p>
+                            {shift.note && (
+                              <p className="mt-1 break-words text-xs text-[#a18b7c]">
+                                {shift.note}
+                              </p>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => openEditShift(shift)}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/70 text-[#8e7b6d]"
+                            aria-label="แก้ไขเวร"
+                          >
+                            <Pencil size={15} />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openDeleteModal(
+                                shift.id,
+                                shift.name,
+                                "shift"
+                              )
+                            }
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/70 text-red-400 hover:bg-red-50"
+                            aria-label="ลบเวร"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
 
               {/* Holiday list */}
               <section className="mb-6">
@@ -631,15 +1053,12 @@ export default function Home() {
                         <span
                           className="h-3 w-3 shrink-0 rounded-full"
                           style={{
-                            backgroundColor:
-                              holiday.color || "#F5A5B8",
+                            backgroundColor: holiday.color || "#F5A5B8",
                           }}
                         />
-
                         <span className="min-w-0 flex-1 break-words text-sm font-medium">
                           {holiday.name}
                         </span>
-
                         <button
                           type="button"
                           onClick={() => openEditHoliday(holiday)}
@@ -648,7 +1067,6 @@ export default function Home() {
                         >
                           <Pencil size={16} />
                         </button>
-
                         <button
                           type="button"
                           onClick={() =>
@@ -696,7 +1114,6 @@ export default function Home() {
                             <p className="break-words font-semibold text-[#6b4e8a]">
                               ✈ {trip.title}
                             </p>
-
                             <p className="mt-2 text-xs text-[#9b83bd]">
                               {trip.startDate} — {trip.endDate}
                             </p>
@@ -711,7 +1128,6 @@ export default function Home() {
                             >
                               <ArrowRight size={16} />
                             </button>
-
                             <button
                               type="button"
                               onClick={() =>
@@ -754,7 +1170,16 @@ export default function Home() {
               </section>
 
               {/* Add buttons */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => openAddShift(selectedDate)}
+                  className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#91B7A0] px-4 py-3 text-sm font-semibold text-white"
+                >
+                  <Plus size={18} />
+                  เพิ่มเวร
+                </button>
+
                 <button
                   type="button"
                   onClick={() => openAddHoliday(selectedDate)}
@@ -778,15 +1203,215 @@ export default function Home() {
         )}
 
         {/* ================================== */}
+        {/* Add / Edit Shift Modal */}
+        {/* ================================== */}
+
+        {showShiftForm && (
+          <div
+            className="fixed inset-0 z-[65] flex items-end justify-center bg-black/30 px-0 backdrop-blur-sm sm:items-center sm:px-4"
+            onClick={closeShiftForm}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="shift-form-title"
+              className="max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl sm:rounded-3xl sm:p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mb-5 flex items-center justify-between">
+                <h2 id="shift-form-title" className="text-xl font-bold">
+                  {shiftId ? "✏️ แก้ไขเวร" : "🕒 เพิ่มเวร"}
+                </h2>
+                <button
+                  type="button"
+                  onClick={closeShiftForm}
+                  disabled={savingShift}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-[#fff7f2] disabled:opacity-40"
+                  aria-label="ปิด"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <label className="mb-2 block text-sm font-medium">
+                วันที่
+              </label>
+              <input
+                type="date"
+                value={shiftDate}
+                onChange={(e) => setShiftDate(e.target.value)}
+                className="mb-5 min-h-12 w-full rounded-xl border border-[#f0e3d9] bg-[#fffcfa] px-4 py-3 outline-none focus:border-[#91B7A0]"
+              />
+
+              <label className="mb-2 block text-sm font-medium">
+                ประเภทเวร
+              </label>
+              <div className="mb-5 grid grid-cols-2 gap-2">
+                {shiftOptions.map((option) => (
+                  <button
+                    key={option.type}
+                    type="button"
+                    onClick={() => handleShiftTypeChange(option.type)}
+                    className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-medium transition ${shiftType === option.type
+                      ? "border-[#91B7A0] bg-[#edf5ef] text-[#547d62]"
+                      : "border-[#f0e3d9] bg-[#fffcfa] text-[#8e7b6d]"
+                      }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              {shiftType === "substitute" && (
+                <>
+                  <label className="mb-2 block text-sm font-medium">
+                    ไปแทนเวรประเภทใด
+                  </label>
+                  <select
+                    value={coveredShift}
+                    onChange={(e) =>
+                      handleCoveredShiftChange(
+                        e.target.value as SubstituteShift
+                      )
+                    }
+                    className="mb-5 min-h-12 w-full rounded-xl border border-[#f0e3d9] bg-[#fffcfa] px-4 py-3 outline-none focus:border-[#91B7A0]"
+                  >
+                    {substituteOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mb-4 rounded-xl bg-[#fff7f2] p-3 text-xs leading-5 text-[#a18b7c]">
+                    ระบบจะกำหนดเวลาให้ตรงกับเวรที่ไปแทน
+                    เช่น แทนเวรบ่ายจะเป็น 15:00–00:00
+                  </p>
+                </>
+              )}
+
+              <label className="mb-2 block text-sm font-medium">
+                ชื่อเวร
+              </label>
+              <input
+                type="text"
+                value={shiftName}
+                onChange={(e) => setShiftName(e.target.value)}
+                placeholder="ระบุชื่อเวร"
+                className="mb-5 min-h-12 w-full rounded-xl border border-[#f0e3d9] bg-[#fffcfa] px-4 py-3 outline-none focus:border-[#91B7A0]"
+              />
+
+              <div className="mb-4 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-2 block text-sm font-medium">
+                    เวลาเริ่ม
+                  </label>
+                  <input
+                    type="time"
+                    value={shiftStartTime}
+                    onChange={(e) => setShiftStartTime(e.target.value)}
+                    className="min-h-12 w-full rounded-xl border border-[#f0e3d9] bg-[#fffcfa] px-3 py-3 outline-none focus:border-[#91B7A0]"
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium">
+                    เวลาเลิก
+                  </label>
+                  <input
+                    type="time"
+                    value={shiftEndTime}
+                    onChange={(e) => setShiftEndTime(e.target.value)}
+                    className="min-h-12 w-full rounded-xl border border-[#f0e3d9] bg-[#fffcfa] px-3 py-3 outline-none focus:border-[#91B7A0]"
+                  />
+                </div>
+              </div>
+
+              <label className="mb-2 flex items-center gap-2 rounded-xl bg-[#fffcfa] p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={shiftEndNextDay}
+                  onChange={(e) => setShiftEndNextDay(e.target.checked)}
+                  className="h-4 w-4 accent-[#91B7A0]"
+                />
+                เวลาเลิกงานเป็นวันถัดไป
+              </label>
+
+              {shiftType === "rh" && (
+                <p className="mb-4 rounded-xl bg-[#f5effb] p-3 text-xs leading-5 text-[#8e7b9d]">
+                  RH สามารถกำหนดเวลาเองได้ แต่ต้องมีระยะเวลารวม 4 ชั่วโมงพอดี
+                </p>
+              )}
+
+              {shiftType === "yp" && (
+                <p className="mb-4 rounded-xl bg-[#edf5ef] p-3 text-xs leading-5 text-[#6f9479]">
+                  YP คือเวลาอบรม 08:00–12:00 สามารถเลือกวันที่เข้าร่วมได้
+                </p>
+              )}
+
+              <label className="mb-2 mt-5 block text-sm font-medium">
+                หมายเหตุ (ถ้ามี)
+              </label>
+              <textarea
+                value={shiftNote}
+                onChange={(e) => setShiftNote(e.target.value)}
+                rows={3}
+                placeholder={
+                  shiftType === "substitute"
+                    ? "ระบุชื่อคนที่ไปแทน หรือรายละเอียดเพิ่มเติม"
+                    : "รายละเอียดเพิ่มเติม"
+                }
+                className="mb-5 w-full rounded-xl border border-[#f0e3d9] bg-[#fffcfa] px-4 py-3 outline-none focus:border-[#91B7A0]"
+              />
+
+              {shiftError && (
+                <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-500">
+                  {shiftError}
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={closeShiftForm}
+                  disabled={savingShift}
+                  className="min-h-12 rounded-xl border border-[#f0e3d9] px-3 py-3 text-sm font-medium text-[#a18b7c] disabled:opacity-40"
+                >
+                  ยกเลิก
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveShift(true)}
+                  disabled={savingShift}
+                  className="min-h-12 rounded-xl border border-[#91B7A0] bg-[#edf5ef] px-3 py-3 text-sm font-semibold text-[#547d62] disabled:opacity-40"
+                >
+                  {savingShift ? "กำลังบันทึก..." : "บันทึก + เพิ่มเวรต่อ"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSaveShift(false)}
+                  disabled={savingShift}
+                  className="min-h-12 rounded-xl bg-[#91B7A0] px-3 py-3 text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  {savingShift
+                    ? "กำลังบันทึก..."
+                    : shiftId
+                      ? "บันทึกการแก้ไข"
+                      : "บันทึกเวร"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================================== */}
         {/* Add / Edit Holiday Modal */}
         {/* ================================== */}
 
         {showHolidayForm && (
           <div
             className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30 px-0 backdrop-blur-sm sm:items-center sm:px-4"
-            onClick={() => {
-              if (!savingHoliday) setShowHolidayForm(false);
-            }}
+            onClick={closeHolidayForm}
           >
             <div
               role="dialog"
@@ -796,16 +1421,12 @@ export default function Home() {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="mb-5 flex items-center justify-between">
-                <h2
-                  id="holiday-form-title"
-                  className="text-xl font-bold"
-                >
-                  {holidayId ? "✏️ แก้ไขวันหยุด" : "🌷 เพิ่มวันหยุด"}
+                <h2 id="holiday-form-title" className="text-xl font-bold">
+                  {holidayId ? "✏️ แก้ไขวันหยุด" : " เพิ่มวันหยุด"}
                 </h2>
-
                 <button
                   type="button"
-                  onClick={() => setShowHolidayForm(false)}
+                  onClick={closeHolidayForm}
                   disabled={savingHoliday}
                   className="flex h-10 w-10 items-center justify-center rounded-full bg-[#fff7f2] disabled:opacity-40"
                   aria-label="ปิด"
@@ -817,7 +1438,6 @@ export default function Home() {
               <label className="mb-2 block text-sm font-medium">
                 วันที่
               </label>
-
               <input
                 type="date"
                 value={selectedDate}
@@ -828,7 +1448,6 @@ export default function Home() {
               <label className="mb-2 block text-sm font-medium">
                 ชื่อวันหยุด
               </label>
-
               <input
                 type="text"
                 placeholder="เช่น ลาพักร้อน / วันหยุดส่วนตัว"
@@ -840,7 +1459,6 @@ export default function Home() {
               <label className="mb-3 block text-sm font-medium">
                 สีของวันหยุด
               </label>
-
               <div className="mb-7 flex flex-wrap gap-4">
                 {holidayColors.map((color) => (
                   <button
@@ -867,20 +1485,17 @@ export default function Home() {
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowHolidayForm(false)}
+                  onClick={closeHolidayForm}
                   disabled={savingHoliday}
                   className="min-h-12 flex-1 rounded-xl border border-[#f0e3d9] py-3 text-sm font-medium text-[#a18b7c] disabled:opacity-40"
                 >
                   ยกเลิก
                 </button>
-
                 <button
                   type="button"
                   onClick={handleSaveHoliday}
                   disabled={
-                    !holidayName.trim() ||
-                    !selectedDate ||
-                    savingHoliday
+                    !holidayName.trim() || !selectedDate || savingHoliday
                   }
                   className="min-h-12 flex-1 rounded-xl bg-[#d69a82] py-3 text-sm font-semibold text-white disabled:opacity-40"
                 >
@@ -894,10 +1509,145 @@ export default function Home() {
             </div>
           </div>
         )}
+        {/* ================================== */}
+        {/* Trip Detail Modal */}
+        {/* ================================== */}
 
+        {showTripDetailModal && selectedTrip && (
+          <div
+            className="fixed inset-0 z-[75] flex items-end justify-center bg-black/30 px-0 backdrop-blur-sm sm:items-center sm:px-4"
+            onClick={closeTripDetail}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="trip-detail-title"
+              className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-xl sm:rounded-3xl sm:p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="mb-6 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm text-[#a18b7c]">
+                    ✈️ TRIP DETAILS
+                  </p>
+
+                  <h2
+                    id="trip-detail-title"
+                    className="mt-2 break-words text-xl font-bold text-[#604b3e]"
+                  >
+                    {selectedTrip.title}
+                  </h2>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeTripDetail}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fff7f2] text-[#a18b7c]"
+                  aria-label="ปิด"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* วันที่ */}
+              <div className="mb-4 rounded-2xl bg-[#f5effb] p-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#9b83bd]">
+                  <CalendarDays size={18} />
+                  วันที่เดินทาง
+                </div>
+
+                <p className="text-sm text-[#604b3e]">
+                  {selectedTrip.startDate}
+                  {" — "}
+                  {selectedTrip.endDate}
+                </p>
+              </div>
+
+              {/* รายละเอียด */}
+              <div className="mb-4">
+                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#604b3e]">
+                  <Heart size={17} className="text-[#d69a82]" />
+                  รายละเอียดทริป
+                </h3>
+
+                <div className="min-h-20 whitespace-pre-wrap break-words rounded-2xl bg-[#fffcfa] p-4 text-sm leading-6 text-[#8e7b6d]">
+                  {selectedTrip.description || "ไม่มีรายละเอียดเพิ่มเติม"}
+                </div>
+              </div>
+
+              {/* สถานที่ */}
+              <div className="mb-6">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#604b3e]">
+                  <MapPin size={17} className="text-[#d69a82]" />
+                  สถานที่เที่ยว ({selectedTrip.places?.length ?? 0})
+                </h3>
+
+                {(selectedTrip.places ?? []).length === 0 ? (
+                  <p className="rounded-xl bg-[#fffcfa] p-4 text-center text-sm text-[#b9a394]">
+                    ยังไม่มีสถานที่เที่ยว
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedTrip.places.map((place, index) => (
+                      <div
+                        key={`${selectedTrip.id}-${place}-${index}`}
+                        className="flex items-center gap-3 rounded-xl bg-[#f5effb] p-3"
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-[#9b83bd]">
+                          {index + 1}
+                        </span>
+
+                        <span className="break-words text-sm text-[#604b3e]">
+                          {place}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ปุ่ม */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={closeTripDetail}
+                  className="flex min-h-12 items-center justify-center rounded-xl border border-[#f0e3d9] px-3 py-3 text-sm font-medium text-[#a18b7c]"
+                >
+                  ปิด
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tripId = selectedTrip.id;
+                    closeTripDetail();
+                    router.push(`/trips/${tripId}/edit`);
+                  }}
+                  className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#a99acb] px-3 py-3 text-sm font-semibold text-white"
+                >
+                  <Pencil size={16} />
+                  แก้ไข Trip
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const trip = selectedTrip;
+                  closeTripDetail();
+                  openDeleteModal(trip.id, trip.title, "trip");
+                }}
+                className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-50 py-3 text-sm font-medium text-red-400 hover:bg-red-100"
+              >
+                <Trash2 size={16} />
+                ลบทริปนี้
+              </button>
+            </div>
+          </div>
+        )}
         {/* ================================== */}
         {/* Delete Confirmation Modal */}
-        {/* ใช้ร่วมกันทั้ง Holiday และ Trip */}
         {/* ================================== */}
 
         {showDeleteModal && deleteTarget && (
@@ -917,19 +1667,16 @@ export default function Home() {
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-400">
                     <Trash2 size={22} />
                   </div>
-
                   <div>
-                    <h2
-                      id="delete-modal-title"
-                      className="text-lg font-bold"
-                    >
+                    <h2 id="delete-modal-title" className="text-lg font-bold">
                       ยืนยันการลบ
                     </h2>
-
                     <p className="mt-1 text-sm text-[#a18b7c]">
                       {deleteTarget.type === "holiday"
                         ? "ลบวันหยุดนี้ออกจากปฏิทิน"
-                        : "ลบทริปนี้ออกจากรายการ"}
+                        : deleteTarget.type === "shift"
+                          ? "ลบเวรนี้ออกจากปฏิทิน"
+                          : "ลบทริปนี้ออกจากรายการ"}
                     </p>
                   </div>
                 </div>
@@ -949,7 +1696,6 @@ export default function Home() {
                 <p className="text-xs text-[#a18b7c]">
                   รายการที่ต้องการลบ
                 </p>
-
                 <p className="mt-1 break-words font-semibold text-[#604b3e]">
                   {deleteTarget.name}
                 </p>
@@ -978,7 +1724,6 @@ export default function Home() {
                 >
                   ยกเลิก
                 </button>
-
                 <button
                   type="button"
                   onClick={handleConfirmDelete}
@@ -991,8 +1736,10 @@ export default function Home() {
             </div>
           </div>
         )}
-
       </div>
     </main>
   );
+
+
+
 }

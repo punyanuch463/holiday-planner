@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -8,24 +9,43 @@ import {
     Plus,
 } from "lucide-react";
 
-import type { Trip, Holiday } from "@/types/trip";
+import type { Trip, Holiday, Shift } from "@/types/trip";
 
 interface MonthlyCalendarProps {
     trips: Trip[];
     holidays: Holiday[];
+    shifts: Shift[];
     onSelectDate: (date: string) => void;
 }
 
 const weekDays = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
 
+const shiftColors: Record<string, string> = {
+    morning: "#91B7A0",
+    afternoon: "#F4C995",
+    night: "#A9C5E8",
+    rh: "#D9C6EF",
+    substitute: "#F5A5B8",
+    yp: "#B5C7A8",
+};
+
+const shiftLabels: Record<string, string> = {
+    morning: "🌈 เช้า",
+    afternoon: "☀️ บ่าย",
+    night: "🌝 ดึก",
+    rh: "✨ RH",
+    substitute: "🤍 แทน",
+    yp: "✅ YP",
+};
+
 export default function MonthlyCalendar({
     trips,
     holidays,
+    shifts,
     onSelectDate,
 }: MonthlyCalendarProps) {
     const [currentDate, setCurrentDate] = useState(() => {
         const today = new Date();
-
         return new Date(today.getFullYear(), today.getMonth(), 1);
     });
 
@@ -64,9 +84,14 @@ export default function MonthlyCalendar({
             (holiday) => holiday.date === date
         );
 
+        const dayShifts = shifts.filter(
+            (shift) => shift.date === date
+        );
+
         return {
             trips: dayTrips,
             holidays: dayHolidays,
+            shifts: dayShifts,
         };
     };
 
@@ -95,7 +120,10 @@ export default function MonthlyCalendar({
         const date = formatDate(day);
         const events = getDayEvents(date);
 
-        const totalEvents = events.holidays.length + events.trips.length;
+        const totalEvents =
+            events.holidays.length +
+            events.trips.length +
+            events.shifts.length;
 
         calendarDays.push(
             <button
@@ -118,16 +146,36 @@ export default function MonthlyCalendar({
                 </span>
 
                 <div className="mt-1 flex w-full min-w-0 flex-col gap-1">
+                    {/* วันหยุด */}
                     {events.holidays.slice(0, 1).map((holiday) => (
                         <div
                             key={holiday.id}
                             className="w-full min-w-0 truncate rounded-md px-1 py-0.5 text-[8px] text-white sm:text-[10px] md:text-xs"
-                            style={{ backgroundColor: holiday.color }}
+                            style={{
+                                backgroundColor: holiday.color || "#F5A5B8",
+                            }}
                         >
-                            {holiday.name}
+                             {holiday.name}
                         </div>
                     ))}
 
+                    {/* เวร */}
+                    {events.shifts.slice(0, 2).map((shift) => (
+                        <div
+                            key={shift.id}
+                            className="w-full min-w-0 truncate rounded-md px-1 py-0.5 text-[8px] text-white sm:text-[10px] md:text-xs"
+                            style={{
+                                backgroundColor:
+                                    shift.color || shiftColors[shift.type] || "#91B7A0",
+                            }}
+                            title={`${shift.name} ${shift.startTime}–${shift.endTime}${shift.endNextDay ? " (วันถัดไป)" : ""
+                                }`}
+                        >
+                            {shiftLabels[shift.type] || "🕒"} {shift.name}
+                        </div>
+                    ))}
+
+                    {/* ทริป */}
                     {events.trips.slice(0, 2).map((trip) => (
                         <div
                             key={trip.id}
@@ -172,7 +220,7 @@ export default function MonthlyCalendar({
                     </h2>
 
                     <p className="mt-1 text-[10px] text-[#b49a87] sm:text-xs">
-                        แตะวันที่เพื่อดูรายละเอียด เพิ่มวันหยุด หรือสร้างทริป
+                        แตะวันที่เพื่อดูรายละเอียด เพิ่มวันหยุด ลงเวร หรือสร้างทริป
                     </p>
                 </div>
 
@@ -220,6 +268,36 @@ export default function MonthlyCalendar({
                 <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-[#F5A5B8]" />
                     วันหยุด
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#91B7A0]" />
+                    เวรเช้า
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#F4C995]" />
+                    เวรบ่าย
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#A9C5E8]" />
+                    เวรดึก
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#D9C6EF]" />
+                    RH
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#F5A5B8]" />
+                    เวรแทน
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#B5C7A8]" />
+                    YP
                 </div>
 
                 <div className="flex items-center gap-2">
