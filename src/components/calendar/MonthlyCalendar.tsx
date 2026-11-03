@@ -9,12 +9,18 @@ import {
     Plus,
 } from "lucide-react";
 
-import type { Trip, Holiday, Shift } from "@/types/trip";
+import type {
+    Trip,
+    Holiday,
+    Shift,
+    ImportedShift,
+} from "@/types/trip";
 
 interface MonthlyCalendarProps {
     trips: Trip[];
     holidays: Holiday[];
     shifts: Shift[];
+    importedShifts: ImportedShift[];
     onSelectDate: (date: string) => void;
 }
 
@@ -38,34 +44,73 @@ const shiftLabels: Record<string, string> = {
     yp: "✅ YP",
 };
 
+const importedShiftConfig: Record<string, { label: string; color: string }> = {
+    DAY: { label: "☀️ Day", color: "#F4C995" },
+    EVE: { label: "🌇 Eve", color: "#E9B68C" },
+    NIGHT: { label: "🌙 Night", color: "#A9C5E8" },
+    RH: { label: "✨ RH", color: "#D9C6EF" },
+    OFF: { label: "🏖️ Off", color: "#A8C9A0" },
+    "D/E": { label: "🌅 Day + Eve", color: "#F4C995" },
+    "D/N": { label: "🌅 Day + Night", color: "#A9C5E8" },
+    "D/R.V": { label: "🌅 Day + RV", color: "#D9C6EF" },
+};
+
+function getImportedShiftDisplay(code: string) {
+    const normalizedCode = code.trim().toUpperCase().replace(/\s+/g, "");
+
+    return (
+        importedShiftConfig[normalizedCode] ?? {
+            label: `❔ ${code} (ยังไม่กำหนด)`,
+            color: "#BDBDBD",
+        }
+    );
+}
+
 export default function MonthlyCalendar({
     trips,
     holidays,
     shifts,
+    importedShifts,
     onSelectDate,
 }: MonthlyCalendarProps) {
     const [currentDate, setCurrentDate] = useState(() => {
         const today = new Date();
-        return new Date(today.getFullYear(), today.getMonth(), 1);
+
+        return new Date(
+            today.getFullYear(),
+            today.getMonth(),
+            1
+        );
     });
 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
 
     const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInMonth = new Date(
+        year,
+        month + 1,
+        0
+    ).getDate();
 
-    const monthName = currentDate.toLocaleDateString("th-TH", {
-        month: "long",
-        year: "numeric",
-    });
+    const monthName = currentDate.toLocaleDateString(
+        "th-TH",
+        {
+            month: "long",
+            year: "numeric",
+        }
+    );
 
     const previousMonth = () => {
-        setCurrentDate(new Date(year, month - 1, 1));
+        setCurrentDate(
+            new Date(year, month - 1, 1)
+        );
     };
 
     const nextMonth = () => {
-        setCurrentDate(new Date(year, month + 1, 1));
+        setCurrentDate(
+            new Date(year, month + 1, 1)
+        );
     };
 
     const formatDate = (day: number) => {
@@ -77,7 +122,9 @@ export default function MonthlyCalendar({
 
     const getDayEvents = (date: string) => {
         const dayTrips = trips.filter(
-            (trip) => date >= trip.startDate && date <= trip.endDate
+            (trip) =>
+                date >= trip.startDate &&
+                date <= trip.endDate
         );
 
         const dayHolidays = holidays.filter(
@@ -88,10 +135,15 @@ export default function MonthlyCalendar({
             (shift) => shift.date === date
         );
 
+        const dayImportedShifts = importedShifts.filter(
+            (shift) => shift.date === date
+        );
+
         return {
             trips: dayTrips,
             holidays: dayHolidays,
             shifts: dayShifts,
+            importedShifts: dayImportedShifts,
         };
     };
 
@@ -116,14 +168,19 @@ export default function MonthlyCalendar({
         );
     }
 
-    for (let day = 1; day <= daysInMonth; day++) {
+    for (
+        let day = 1;
+        day <= daysInMonth;
+        day++
+    ) {
         const date = formatDate(day);
         const events = getDayEvents(date);
 
         const totalEvents =
             events.holidays.length +
             events.trips.length +
-            events.shifts.length;
+            events.shifts.length +
+            events.importedShifts.length;
 
         calendarDays.push(
             <button
@@ -146,47 +203,96 @@ export default function MonthlyCalendar({
                 </span>
 
                 <div className="mt-1 flex w-full min-w-0 flex-col gap-1">
-                    {/* วันหยุด */}
-                    {events.holidays.slice(0, 1).map((holiday) => (
-                        <div
-                            key={holiday.id}
-                            className="w-full min-w-0 truncate rounded-md px-1 py-0.5 text-[8px] text-white sm:text-[10px] md:text-xs"
-                            style={{
-                                backgroundColor: holiday.color || "#F5A5B8",
-                            }}
-                        >
-                             {holiday.name}
-                        </div>
-                    ))}
 
-                    {/* เวร */}
-                    {events.shifts.slice(0, 2).map((shift) => (
-                        <div
-                            key={shift.id}
-                            className="w-full min-w-0 truncate rounded-md px-1 py-0.5 text-[8px] text-white sm:text-[10px] md:text-xs"
-                            style={{
-                                backgroundColor:
-                                    shift.color || shiftColors[shift.type] || "#91B7A0",
-                            }}
-                            title={`${shift.name} ${shift.startTime}–${shift.endTime}${shift.endNextDay ? " (วันถัดไป)" : ""
-                                }`}
-                        >
-                            {shiftLabels[shift.type] || "🕒"} {shift.name}
-                        </div>
-                    ))}
+                    {/* วันหยุด */}
+                    {events.holidays.slice(0, 1).map(
+                        (holiday) => (
+                            <div
+                                key={holiday.id}
+                                className="w-full min-w-0 truncate rounded-md px-1 py-0.5 text-[8px] text-white sm:text-[10px] md:text-xs"
+                                style={{
+                                    backgroundColor:
+                                        holiday.color || "#F5A5B8",
+                                }}
+                                title={holiday.name}
+                            >
+                                {holiday.name}
+                            </div>
+                        )
+                    )}
+
+                    {/* เวรที่เพิ่มเอง */}
+                    {events.shifts.slice(0, 2).map(
+                        (shift) => (
+                            <div
+                                key={shift.id}
+                                className="w-full min-w-0 truncate rounded-md px-1 py-0.5 text-[8px] text-white sm:text-[10px] md:text-xs"
+                                style={{
+                                    backgroundColor:
+                                        shift.color ||
+                                        shiftColors[shift.type] ||
+                                        "#91B7A0",
+                                }}
+                                title={`${shift.name} ${shift.startTime}–${shift.endTime}${shift.endNextDay
+                                    ? " (วันถัดไป)"
+                                    : ""
+                                    }`}
+                            >
+                                {shiftLabels[shift.type] || "🕒"}{" "}
+                                {shift.name}
+                            </div>
+                        )
+                    )}
+
+                    {/* เวรที่ Import จาก Excel */}
+                    {events.importedShifts.slice(0, 2).map(
+                        (shift) => {
+                            const display =
+                                getImportedShiftDisplay(
+                                    shift.originalCode
+                                );
+
+                            return (
+                                <div
+                                    key={shift.id}
+                                    className="w-full min-w-0 truncate rounded-md px-1 py-0.5 text-[8px] text-white sm:text-[10px] md:text-xs"
+                                    style={{
+                                        backgroundColor:
+                                            display.color,
+                                    }}
+                                    title={[
+                                        shift.employeeName,
+                                        shift.originalCode,
+                                        display.label,
+                                    ]
+                                        .filter(Boolean)
+                                        .join(" | ")}
+                                >
+                                    {display.label}
+                                    {shift.employeeName
+                                        ? ` ${shift.employeeName}`
+                                        : ""}
+                                </div>
+                            );
+                        }
+                    )}
 
                     {/* ทริป */}
-                    {events.trips.slice(0, 2).map((trip) => (
-                        <div
-                            key={trip.id}
-                            className="w-full min-w-0 truncate rounded-md px-1 py-0.5 text-[8px] text-[#6b4e8a] sm:text-[10px] md:text-xs"
-                            style={{
-                                backgroundColor: trip.color || "#D9C6EF",
-                            }}
-                        >
-                            ✈ {trip.title}
-                        </div>
-                    ))}
+                    {events.trips.slice(0, 2).map(
+                        (trip) => (
+                            <div
+                                key={trip.id}
+                                className="w-full min-w-0 truncate rounded-md px-1 py-0.5 text-[8px] text-[#6b4e8a] sm:text-[10px] md:text-xs"
+                                style={{
+                                    backgroundColor:
+                                        trip.color || "#D9C6EF",
+                                }}
+                                title={trip.title}
+                            >
+                                ✈ {trip.title}
+                            </div>
+                        )
+                    )}
 
                     {totalEvents > 3 && (
                         <span className="text-[8px] text-[#a18b7c] sm:text-[10px]">
@@ -207,6 +313,7 @@ export default function MonthlyCalendar({
 
     return (
         <section className="min-w-0 rounded-3xl border border-white bg-white/80 p-3 shadow-sm sm:p-4 md:p-6">
+
             {/* Header */}
             <div className="mb-5 flex items-center justify-between gap-2 sm:mb-6">
                 <div className="min-w-0">
@@ -216,7 +323,9 @@ export default function MonthlyCalendar({
                             size={22}
                         />
 
-                        <span className="truncate">{monthName}</span>
+                        <span className="truncate">
+                            {monthName}
+                        </span>
                     </h2>
 
                     <p className="mt-1 text-[10px] text-[#b49a87] sm:text-xs">
@@ -250,7 +359,9 @@ export default function MonthlyCalendar({
                 {weekDays.map((day, index) => (
                     <div
                         key={day}
-                        className={`py-2 text-center text-[10px] font-medium sm:text-xs md:text-sm ${index === 0 ? "text-[#d69a82]" : "text-[#a18b7c]"
+                        className={`py-2 text-center text-[10px] font-medium sm:text-xs md:text-sm ${index === 0
+                            ? "text-[#d69a82]"
+                            : "text-[#a18b7c]"
                             }`}
                     >
                         {day}
@@ -265,6 +376,7 @@ export default function MonthlyCalendar({
 
             {/* Legend */}
             <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-[10px] text-[#a18b7c] sm:text-xs">
+
                 <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-[#F5A5B8]" />
                     วันหยุด
@@ -298,6 +410,31 @@ export default function MonthlyCalendar({
                 <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full bg-[#B5C7A8]" />
                     YP
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#F4C995]" />
+                    D/E
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#A9C5E8]" />
+                    D/N
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#D9C6EF]" />
+                    D/R.V
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#A8C9A0]" />
+                    Off (วันหยุด)
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-[#BDBDBD]" />
+                    รหัสที่ยังไม่กำหนด
                 </div>
 
                 <div className="flex items-center gap-2">

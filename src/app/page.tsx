@@ -14,7 +14,10 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
-import type { Trip, Holiday, Shift, ShiftType } from "@/types/trip";
+import type { Trip, Holiday, Shift, ShiftType, ImportedShift } from "@/types/trip";
+import ImportShift from "@/components/shift/ImportShift";
+import { saveImportedShifts } from "@/lib/importedShiftService";
+import { getShiftMeaningLabel } from "@/lib/shiftCodeMapper";
 
 import {
   CalendarDays,
@@ -27,6 +30,7 @@ import {
   Pencil,
   Trash2,
   ArrowRight,
+  FileSpreadsheet,
 } from "lucide-react";
 
 import dynamic from "next/dynamic";
@@ -195,7 +199,9 @@ export default function Home() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [importedShifts, setImportedShifts] = useState<ImportedShift[]>([]);
   const [loading, setLoading] = useState(true);
+  const [importError, setImportError] = useState("");
 
   // ----------------------------------------
   // Modal รายละเอียดวันที่
@@ -236,6 +242,17 @@ export default function Home() {
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [showTripDetailModal, setShowTripDetailModal] = useState(false);
   // ----------------------------------------
+  // Import ตารางเวร
+  // ----------------------------------------
+
+  const handleImportShifts = async (
+    items: Omit<ImportedShift, "id" | "createdAt" | "updatedAt">[]
+  ) => {
+    setImportError("");
+    await saveImportedShifts(items);
+  };
+
+  // ----------------------------------------
   // Delete modal
   // ----------------------------------------
 
@@ -258,6 +275,7 @@ export default function Home() {
     let unsubscribeTrips: (() => void) | undefined;
     let unsubscribeHolidays: (() => void) | undefined;
     let unsubscribeShifts: (() => void) | undefined;
+    let unsubscribeImportedShifts: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (!user) {
@@ -319,6 +337,22 @@ export default function Home() {
           console.error("Load shifts error:", error);
         }
       );
+
+      unsubscribeImportedShifts = onSnapshot(
+        collection(db, "importedShifts"),
+        (snapshot) => {
+          const data = snapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          })) as ImportedShift[];
+
+          setImportedShifts(data);
+        },
+        (error) => {
+          console.error("Load imported shifts error:", error);
+          setImportError("ไม่สามารถโหลดตารางเวรที่ Import ได้ กรุณาตรวจสอบ Firestore Rules");
+        }
+      );
     });
 
     return () => {
@@ -326,6 +360,7 @@ export default function Home() {
       unsubscribeTrips?.();
       unsubscribeHolidays?.();
       unsubscribeShifts?.();
+      unsubscribeImportedShifts?.();
     };
   }, []);
 
@@ -343,6 +378,10 @@ export default function Home() {
   );
 
   const selectedDayShifts = shifts.filter(
+    (shift) => shift.date === selectedDate
+  );
+
+  const selectedDayImportedShifts = importedShifts.filter(
     (shift) => shift.date === selectedDate
   );
 
@@ -740,8 +779,22 @@ export default function Home() {
           </div>
         </header>
 
+        {/* Import ตารางเวรจาก Excel */}
+        <section className="mb-7">
+          <ImportShift onImport={handleImportShifts} />
+          {importError && (
+            <p role="alert" className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-600">
+              {importError}
+            </p>
+          )}
+          <p className="mt-2 text-xs leading-5 text-[#a18b7c]">
+            หมายเหตุ: ไฟล์ Excel ต้องมีคอลัมน์ วันที่, ชื่อพนักงาน และรหัสเวร ตามลำดับ
+            ระบบจะเก็บรหัสเดิมไว้ แม้ยังไม่รู้ความหมาย
+          </p>
+        </section>
+
         {/* Summary */}
-        <div className="mb-7 grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+        <div className="mb-7 grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-5">
           <div className="rounded-2xl border border-white bg-white/80 p-5 shadow-sm">
             <div className="mb-3 flex items-center gap-2 text-sm text-[#a18b7c]">
               <CalendarDays size={18} />
@@ -765,6 +818,19 @@ export default function Home() {
             </p>
             <p className="mt-1 text-xs text-[#b9a394]">
               รายการเวรที่บันทึกไว้
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white bg-white/80 p-5 shadow-sm">
+            <div className="mb-3 flex items-center gap-2 text-sm text-[#a18b7c]">
+              <FileSpreadsheet size={18} />
+              เวรที่ Import
+            </div>
+            <p className="text-3xl font-bold text-[#9b83bd]">
+              {importedShifts.length}
+            </p>
+            <p className="mt-1 text-xs text-[#b9a394]">
+              รวมรหัสเวรจากไฟล์
             </p>
           </div>
 
@@ -803,6 +869,7 @@ export default function Home() {
           trips={trips}
           holidays={holidays}
           shifts={shifts}
+          importedShifts={importedShifts}
           onSelectDate={handleSelectDate}
         />
 
@@ -1023,6 +1090,52 @@ export default function Home() {
                             <Trash2 size={15} />
                           </button>
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* Imported shifts */}
+              <section className="mb-6">
+                <h3 className="mb-3 flex items-center gap-2 font-semibold text-[#9b83bd]">
+                  <FileSpreadsheet size={18} />
+                  เวรจากไฟล์ Import ({selectedDayImportedShifts.length})
+                </h3>
+
+                {selectedDayImportedShifts.length === 0 ? (
+                  <p className="rounded-xl bg-[#fffcfa] p-4 text-center text-sm text-[#b9a394]">
+                    ไม่มีข้อมูลเวรที่ Import ในวันนี้
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedDayImportedShifts.map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-xl border border-[#eee5f5] bg-[#faf7fd] p-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-[#604b3e]">
+                            {item.originalCode}
+                          </span>
+                          <span className={`rounded-full px-2 py-1 text-xs ${
+                            item.meaning === "unknown"
+                              ? "bg-gray-100 text-gray-600"
+                              : item.meaning === "off"
+                                ? "bg-green-100 text-green-700"
+                                : "bg-purple-100 text-purple-700"
+                          }`}>
+{getShiftMeaningLabel(item.meaning)}
+                          </span>
+                        </div>
+                        {item.employeeName && (
+                          <p className="mt-1 text-xs text-[#8e7b6d]">
+                            พนักงาน: {item.employeeName}
+                          </p>
+                        )}
+                        {item.note && (
+                          <p className="mt-1 text-xs text-[#a18b7c]">{item.note}</p>
+                        )}
                       </div>
                     ))}
                   </div>

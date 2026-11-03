@@ -56,4 +56,29 @@ export interface Shift {
 
   createdAt?: unknown;
   updatedAt?: unknown;
+}export type ImportedShiftMeaning =
+    | "day"
+    | "evening"
+    | "night"
+    | "rh"
+    | "day_evening"
+    | "day_night"
+    | "day_rv"
+    | "off"
+    | "unknown";
+
+export interface ImportedShift {
+    id: string;
+    date: string;
+    originalCode: string;
+    meaning: ImportedShiftMeaning;
+
+    // เพิ่ม property นี้
+    employeeName?: string;
+
+    note?: string;
+    sourceFile?: string;
+
+    createdAt?: unknown;
+    updatedAt?: unknown;
 }
